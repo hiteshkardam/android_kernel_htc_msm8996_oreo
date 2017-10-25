@@ -23,10 +23,10 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 
-#include "tui_ioctl.h"
+#include "public/tui_ioctl.h"
 #include "tlcTui.h"
-#include "mobicore_driver_api.h"
-#include "dciTui.h"
+#include "../MobiCoreDriver/public/mobicore_driver_api.h"
+#include "inc/dciTui.h"
 #include "tui-hal.h"
 #include "build_tag.h"
 

@@ -18,10 +18,10 @@
 #ifndef CONFIG_TRUSTONIC_TRUSTED_UI
 #define CONFIG_TRUSTONIC_TRUSTED_UI
 #endif
-#include <t-base-tui.h>
+#include "inc/t-base-tui.h"
 
-#include "tui_ioctl.h"
-#include "dciTui.h"
+#include "public/tui_ioctl.h"
+#include "inc/dciTui.h"
 #include "tlcTui.h"
 #include "tui-hal.h"
 

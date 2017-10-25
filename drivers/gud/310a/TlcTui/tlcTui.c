@@ -19,10 +19,10 @@
 #include <linux/kernel.h>
 #include <linux/kthread.h>
 
-#include "mobicore_driver_api.h"
-#include "tui_ioctl.h"
+#include "../MobiCoreDriver/public/mobicore_driver_api.h"
+#include "public/tui_ioctl.h"
 #include "tlcTui.h"
-#include "dciTui.h"
+#include "inc/dciTui.h"
 #include "tui-hal.h"
 
 
