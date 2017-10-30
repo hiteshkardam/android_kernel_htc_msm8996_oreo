@@ -395,6 +395,8 @@
 					drive-strength = <2>;
 					bias-pull-down;
 				};
+			};
+		};
 
 		blsp2_uart1_active: blsp2_uart1_active {
 			mux {
