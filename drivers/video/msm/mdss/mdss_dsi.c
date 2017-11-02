@@ -348,214 +348,6 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 	return ret;
 }
 
-/*
- * HTC: Enable/Disable external VDDIO LDO by GPIO
- */
-static int mdss_dsi_vddio_gpio_enable(struct mdss_dsi_ctrl_pdata *ctrl_pdata, int enable)
-{
-	if (mdss_dsi_is_hw_config_split(ctrl_pdata->shared_data)) {
-		if (mdss_dsi_is_right_ctrl(ctrl_pdata) && enable)
-			return 0;
-		else if (mdss_dsi_is_left_ctrl(ctrl_pdata) && !enable)
-			return 0;
-	}
-
-	pr_info("%s: ctrl_%d, en=%d\n", __func__, ctrl_pdata->ndx, enable);
-
-	if (enable)
-		gpio_direction_output((ctrl_pdata->vddio_gpio), 1);
-	else
-		gpio_direction_output((ctrl_pdata->vddio_gpio), 0);
-
-	return 1;
-}
-
-static void mdss_dsi_vddio_switch(struct mdss_dsi_ctrl_pdata *ctrl_pdata, int enable)
-{
-	int ret = 0;
-	int vddio = -1, i = 0;
-	bool need_sleep;
-	struct dss_vreg *in_vreg = NULL;
-
-	if (ctrl_pdata == NULL)
-		return;
-
-	if (!gpio_is_valid(ctrl_pdata->vddio_gpio)) {
-		pr_info("%s: vddio_gpio=%d, skip switch\n", __func__, ctrl_pdata->vddio_gpio);
-		return;
-	}
-
-	if (ctrl_pdata->vddio_switch == enable)
-		return;
-
-	ctrl_pdata->vddio_switch = enable;
-
-	if (ctrl_pdata->panel_data.panel_info.panel_power_state == MDSS_PANEL_POWER_OFF) {
-		pr_info("%s: power off state, en=%d \n", __func__, enable);
-		return;
-	}
-
-	in_vreg = ctrl_pdata->panel_power_data.vreg_config;
-	for (i=0; i < ctrl_pdata->panel_power_data.num_vreg; i++) {
-		if (!strcmp(in_vreg[i].vreg_name, "vddio"))
-			vddio = i;
-	}
-	if (vddio < 0) {
-		pr_err("%s: vddio regulator not found\n", __func__);
-		return;
-	}
-
-	if (enable) {
-		if (mdss_dsi_vddio_gpio_enable(ctrl_pdata, 1))
-			msleep(100);
-		/* enable LPM and disable pull down */
-		ret = regulator_enable(ctrl_pdata->vddio_reg);
-		regulator_set_optimum_mode(in_vreg[vddio].vreg,
-			in_vreg[vddio].disable_load);
-		regulator_disable(in_vreg[vddio].vreg);
-	} else {
-		/* disable LPM and enable pull down */
-		need_sleep = !regulator_is_enabled(in_vreg[vddio].vreg);
-		regulator_disable(ctrl_pdata->vddio_reg);
-		ret = regulator_set_optimum_mode(in_vreg[vddio].vreg, in_vreg[vddio].enable_load);
-		if (ret == 0)
-			ret = regulator_enable(in_vreg[vddio].vreg);
-		if (ret < 0)
-			pr_err("%s: enable regualator [%s] failed. (%d)\n", __func__, in_vreg[vddio].vreg_name, ret);
-		else if (need_sleep)
-			msleep(100);
-		mdss_dsi_vddio_gpio_enable(ctrl_pdata, 0);
-	}
-}
-
-static int mdss_dsi_panel_power_off_hx8396c2(struct mdss_panel_data *pdata)
-{
-	int ret = 0;
-	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
-	int vddio = -1, lab = -1, ibb = -1;
-	int i = 0;
-	struct dss_vreg *in_vreg = NULL;
-
-	if (pdata == NULL) {
-		pr_err("%s: Invalid input data\n", __func__);
-		ret = -EINVAL;
-		goto end;
-	}
-
-	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
-				panel_data);
-
-	in_vreg = ctrl_pdata->panel_power_data.vreg_config;
-	for (i=0; i < ctrl_pdata->panel_power_data.num_vreg; i++) {
-		if (!strcmp(in_vreg[i].vreg_name, "vddio"))
-			vddio = i;
-		else if (!strcmp(in_vreg[i].vreg_name, "lab"))
-			lab = i;
-		else if (!strcmp(in_vreg[i].vreg_name, "ibb"))
-			ibb = i;
-	}
-	pr_info("%s: ctrl%d vddio=%d, lab=%d, ibb=%d, ext-vdd_en=%d\n",
-		 __func__, ctrl_pdata->ndx, vddio, lab, ibb, ctrl_pdata->vddio_switch);
-
-	if (vddio < 0 || lab < 0 || ibb < 0) {
-		ret = -EINVAL;
-		goto end;
-	}
-
-	regulator_set_optimum_mode(in_vreg[ibb].vreg, in_vreg[ibb].disable_load);
-	regulator_disable(in_vreg[ibb].vreg);
-	regulator_set_optimum_mode(in_vreg[lab].vreg, in_vreg[lab].disable_load);
-	regulator_disable(in_vreg[lab].vreg);
-	if (!regulator_is_enabled(in_vreg[lab].vreg))
-		usleep_range(20000, 20000);
-
-	if (ctrl_pdata->vddio_switch) {
-		mdss_dsi_vddio_gpio_enable(ctrl_pdata, 0);
-		/* disable LPM and enable pull down */
-		ret = regulator_disable(ctrl_pdata->vddio_reg);
-		if (!regulator_is_enabled(ctrl_pdata->vddio_reg))
-			usleep_range(10000, 10000);
-	} else {
-		regulator_set_optimum_mode(in_vreg[vddio].vreg,
-			in_vreg[vddio].disable_load);
-		ret = regulator_disable(in_vreg[vddio].vreg);
-		if (!regulator_is_enabled(in_vreg[vddio].vreg))
-			usleep_range(10000, 10000);
-	}
-
-	ret = mdss_dsi_panel_reset(pdata, 0);
-	if (ret) {
-		pr_warn("%s: Panel reset failed. rc=%d\n", __func__, ret);
-		ret = 0;
-	}
-	if (mdss_dsi_pinctrl_set_state(ctrl_pdata, false))
-		pr_debug("reset disable: pinctrl not enabled\n");
-
-	if ((!mdss_dsi_is_hw_config_split(ctrl_pdata->shared_data))
-		|| mdss_dsi_is_right_ctrl(ctrl_pdata))
-		msleep(290);
-
-end:
-	return ret;
-}
-
-static int mdss_dsi_panel_power_on_hx8396c2(struct mdss_panel_data *pdata)
-{
-	int ret = 0;
-	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
-
-	if (pdata == NULL) {
-		pr_err("%s: Invalid input data\n", __func__);
-		return -EINVAL;
-	}
-
-	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
-				panel_data);
-
-	pr_info("%s: ctrl%d ext-vdd_en=%d\n",
-		 __func__, ctrl_pdata->ndx, ctrl_pdata->vddio_switch);
-
-	if (ctrl_pdata->vddio_switch) {
-		/* enable LPM and disable pull down */
-		ret = regulator_enable(ctrl_pdata->vddio_reg);
-		mdss_dsi_vddio_gpio_enable(ctrl_pdata, 1);
-		usleep_range(1000, 1100);
-
-		/* switch enabled, so skip the first regulator vddio */
-		ret = msm_dss_enable_vreg(
-			&(ctrl_pdata->panel_power_data.vreg_config[1]),
-			ctrl_pdata->panel_power_data.num_vreg-1, 1);
-	} else {
-		ret = msm_dss_enable_vreg(
-			ctrl_pdata->panel_power_data.vreg_config,
-			ctrl_pdata->panel_power_data.num_vreg, 1);
-	}
-
-	if (ret) {
-		pr_err("%s: failed to enable vregs for %s\n",
-			__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
-		return ret;
-	}
-	/*
-	 * If continuous splash screen feature is enabled, then we need to
-	 * request all the GPIOs that have already been configured in the
-	 * bootloader. This needs to be done irresepective of whether
-	 * the lp11_init flag is set or not.
-	 */
-	if (pdata->panel_info.cont_splash_enabled ||
-		!pdata->panel_info.mipi.lp11_init) {
-		if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
-			pr_debug("reset enable: pinctrl not enabled\n");
-
-		ret = mdss_dsi_panel_reset(pdata, 1);
-		if (ret)
-			pr_err("%s: Panel reset failed. rc=%d\n",
-					__func__, ret);
-	}
-
-	return ret;
-}
-
 static int mdss_dsi_panel_power_lp(struct mdss_panel_data *pdata, int enable)
 {
 	/* Panel power control when entering/exiting lp mode */
@@ -646,10 +438,7 @@ int mdss_dsi_panel_power_ctrl(struct mdss_panel_data *pdata,
 
 	switch (power_state) {
 	case MDSS_PANEL_POWER_OFF:
-		if (pinfo->power_ctrl == PANEL_POWER_CTRL_HX8396C2)
-			ret = mdss_dsi_panel_power_off_hx8396c2(pdata);
-		else
-			ret = mdss_dsi_panel_power_off(pdata);
+		ret = mdss_dsi_panel_power_off(pdata);
 		break;
 	case MDSS_PANEL_POWER_ON:
 		if (mdss_dsi_is_panel_on_ulp(pdata)) {
@@ -658,12 +447,9 @@ int mdss_dsi_panel_power_ctrl(struct mdss_panel_data *pdata,
 		} else if (mdss_dsi_is_panel_on_lp(pdata)) {
 			ret = mdss_dsi_panel_power_lp(pdata, false);
 			goto end;
-		} else if (pinfo->power_ctrl == PANEL_POWER_CTRL_HX8396C2){
-			ret = mdss_dsi_panel_power_on_hx8396c2(pdata);
-			goto end;
-		} else
+		} else {
 			ret = mdss_dsi_panel_power_on(pdata);
-		
+		}
 		break;
 	case MDSS_PANEL_POWER_LP1:
 		if (mdss_dsi_is_panel_on_ulp(pdata))
@@ -1735,24 +1521,11 @@ static int mdss_dsi_pinctrl_set_state(
 	struct pinctrl_state *pin_state;
 	struct mdss_panel_info *pinfo = NULL;
 	int rc = -EFAULT;
-	bool skip = false;
 
 	if (IS_ERR_OR_NULL(ctrl_pdata->pin_res.pinctrl))
 		return PTR_ERR(ctrl_pdata->pin_res.pinctrl);
 
 	pinfo = &ctrl_pdata->panel_data.panel_info;
-
-	if (mdss_dsi_is_hw_config_split(ctrl_pdata->shared_data)) {
-		if (mdss_dsi_is_right_ctrl(ctrl_pdata) && active)
-			skip = true;
-		else if (mdss_dsi_is_left_ctrl(ctrl_pdata) && !active)
-			skip = true;
-		if (skip) {
-			pr_debug("%s:%d, right ctrl gpio configuration not needed\n",
-				__func__, __LINE__);
-			return rc;
-		}
-	}
 	if ((mdss_dsi_is_right_ctrl(ctrl_pdata) &&
 		mdss_dsi_is_hw_config_split(ctrl_pdata->shared_data)) ||
 			pinfo->is_dba_panel) {
@@ -1979,6 +1752,18 @@ static int mdss_dsi_post_panel_on(struct mdss_panel_data *pdata)
 	pr_debug("%s-:\n", __func__);
 
 	return 0;
+}
+
+static irqreturn_t test_hw_vsync_handler(int irq, void *data)
+{
+	struct mdss_panel_data *pdata = (struct mdss_panel_data *)data;
+
+	pr_debug("HW VSYNC\n");
+	MDSS_XLOG(0xaaa, irq);
+	complete_all(&pdata->te_done);
+	if (pdata->next)
+		complete_all(&pdata->next->te_done);
+	return IRQ_HANDLED;
 }
 
 int mdss_dsi_cont_splash_on(struct mdss_panel_data *pdata)
@@ -2974,12 +2759,6 @@ static int mdss_dsi_event_handler(struct mdss_panel_data *pdata,
 					&ctrl_pdata->dba_work, HZ);
 		}
 		break;
-	case MDSS_EVENT_PANEL_VDDIO_SWITCH_ON:
-		mdss_dsi_vddio_switch(ctrl_pdata, 1);
-		break;
-	case MDSS_EVENT_PANEL_VDDIO_SWITCH_OFF:
-		mdss_dsi_vddio_switch(ctrl_pdata, 0);
-		break;
 	default:
 		pr_debug("%s: unhandled event=%d\n", __func__, event);
 		break;
@@ -3267,8 +3046,7 @@ error_clk_client_deregister:
 error_clk_deinit:
 	mdss_dsi_clk_deinit(ctrl_pdata->clk_mngr);
 error_link_clk_deinit:
-	if (ctrl_pdata)
-		mdss_dsi_link_clk_deinit(&ctrl_pdev->dev, ctrl_pdata);
+	mdss_dsi_link_clk_deinit(&ctrl_pdev->dev, ctrl_pdata);
 	return rc;
 }
 
@@ -3397,6 +3175,8 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 	struct device_node *dsi_pan_node = NULL;
 	const char *ctrl_name;
 	struct mdss_util_intf *util;
+	static int te_irq_registered;
+	struct mdss_panel_data *pdata;
 
 	if (!pdev || !pdev->dev.of_node) {
 		pr_err("%s: pdev not found for DSI controller\n", __func__);
@@ -3522,6 +3302,23 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 		}
 		te_irq_registered = 1;
 		disable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
+	}
+
+	pdata = &ctrl_pdata->panel_data;
+	init_completion(&pdata->te_done);
+	if (pdata->panel_info.type == MIPI_CMD_PANEL) {
+		if (!te_irq_registered) {
+			rc = devm_request_irq(&pdev->dev,
+				gpio_to_irq(pdata->panel_te_gpio),
+				test_hw_vsync_handler, IRQF_TRIGGER_FALLING,
+				"VSYNC_GPIO", &ctrl_pdata->panel_data);
+			if (rc) {
+				pr_err("%s: TE request_irq failed\n", __func__);
+				goto error_shadow_clk_deinit;
+			}
+			te_irq_registered = 1;
+			disable_irq_nosync(gpio_to_irq(pdata->panel_te_gpio));
+		}
 	}
 
 	rc = mdss_dsi_get_bridge_chip_params(pinfo, ctrl_pdata, pdev);
@@ -4176,18 +3973,9 @@ static void mdss_dsi_parse_lane_swap(struct device_node *np, char *dlane_swap)
 static int mdss_dsi_parse_ctrl_params(struct platform_device *ctrl_pdev,
 	struct device_node *pan_node, struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
-	int i, len, ret;
+	int i, len;
 	struct mdss_panel_info *pinfo = &(ctrl_pdata->panel_data.panel_info);
 	const char *data;
-	struct device_node *supply_node = NULL;
-	const char *st = NULL;
-
-	supply_node = of_parse_phandle(ctrl_pdev->dev.of_node, "vddio-switch-supply", 0);
-	ret = of_property_read_string(supply_node, "regulator-name", &st);
-	if (ret) {
-		pr_err("%s: error reading name.\n", __func__);
-	}
-	ctrl_pdata->vddio_reg = regulator_get(&ctrl_pdev->dev, st);
 
 	ctrl_pdata->null_insert_enabled = of_property_read_bool(
 		ctrl_pdev->dev.of_node, "qcom,null-insertion-enabled");
@@ -4278,8 +4066,8 @@ static int mdss_dsi_parse_ctrl_params(struct platform_device *ctrl_pdev,
 static int mdss_dsi_parse_gpio_params(struct platform_device *ctrl_pdev,
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 {
-	int rc = 0;
 	struct mdss_panel_info *pinfo = &(ctrl_pdata->panel_data.panel_info);
+	struct mdss_panel_data *pdata = &ctrl_pdata->panel_data;
 
 	/*
 	 * If disp_en_gpio has been set previously (disp_en_gpio > 0)
@@ -4301,6 +4089,7 @@ static int mdss_dsi_parse_gpio_params(struct platform_device *ctrl_pdev,
 	if (!gpio_is_valid(ctrl_pdata->disp_te_gpio))
 		pr_err("%s:%d, TE gpio not specified\n",
 						__func__, __LINE__);
+	pdata->panel_te_gpio = ctrl_pdata->disp_te_gpio;
 
 	ctrl_pdata->bklt_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
 		"qcom,platform-bklight-en-gpio", 0);
@@ -4312,20 +4101,6 @@ static int mdss_dsi_parse_gpio_params(struct platform_device *ctrl_pdev,
 	if (!gpio_is_valid(ctrl_pdata->rst_gpio))
 		pr_err("%s:%d, reset gpio not specified\n",
 						__func__, __LINE__);
-
-	ctrl_pdata->vddio_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
-			 "qcom,platform-vddio-gpio", 0);
-	if (!gpio_is_valid(ctrl_pdata->vddio_gpio)) {
-		pr_err("%s:%d, vddio gpio not specified\n",
-						__func__, __LINE__);
-	} else {
-		rc = gpio_request(ctrl_pdata->vddio_gpio, "vddio_enable");
-		if (rc) {
-			pr_err("request vddio gpio failed, rc=%d\n", rc);
-		} else {
-			gpio_direction_output((ctrl_pdata->vddio_gpio), 0);
-		}
-	}
 
 	if (pinfo->mode_gpio_state != MODE_GPIO_NOT_VALID) {
 

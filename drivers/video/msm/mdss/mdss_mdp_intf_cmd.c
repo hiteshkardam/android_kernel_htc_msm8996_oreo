@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,6 +21,7 @@
 #include "mdss_debug.h"
 #include "mdss_mdp_trace.h"
 #include "mdss_dsi_clk.h"
+#include <linux/interrupt.h>
 
 #define MAX_RECOVERY_TRIALS 10
 #define MAX_SESSIONS 2
@@ -103,8 +104,6 @@ struct mdss_mdp_cmd_ctx {
 	struct mdss_mdp_cmd_ctx *sync_ctx; /* for partial update */
 	u32 pp_timeout_report_cnt;
 	bool pingpong_split_slave;
-
-	u32 check_tepin;
 };
 
 struct mdss_mdp_cmd_ctx mdss_mdp_cmd_ctx_list[MAX_SESSIONS];
@@ -983,8 +982,6 @@ static void mdss_mdp_cmd_readptr_done(void *arg)
 	struct mdss_mdp_cmd_ctx *ctx = ctl->intf_ctx[MASTER_CTX];
 	struct mdss_mdp_vsync_handler *tmp;
 	ktime_t vsync_time;
-	u32 status;
-	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
 
 	if (!ctx) {
 		pr_err("invalid ctx\n");
@@ -993,8 +990,7 @@ static void mdss_mdp_cmd_readptr_done(void *arg)
 
 	vsync_time = ktime_get();
 	ctl->vsync_cnt++;
-	status = readl_relaxed(mdata->mdp_base + MDSS_REG_HW_INTR2_STATUS);
-	MDSS_XLOG(ctl->num, atomic_read(&ctx->koff_cnt), status);
+	MDSS_XLOG(ctl->num, atomic_read(&ctx->koff_cnt));
 	complete_all(&ctx->rdptr_done);
 
 	/* If caller is waiting for the read pointer, notify. */
@@ -1877,14 +1873,35 @@ int mdss_mdp_cmd_reconfigure_splash_done(struct mdss_mdp_ctl *ctl,
 	return ret;
 }
 
+static int __mdss_mdp_wait4pingpong(struct mdss_mdp_cmd_ctx *ctx)
+{
+	int rc = 0;
+	s64 expected_time = ktime_to_ms(ktime_get()) + KOFF_TIMEOUT_MS;
+	s64 time;
+
+	do {
+		rc = wait_event_timeout(ctx->pp_waitq,
+				atomic_read(&ctx->koff_cnt) == 0,
+				KOFF_TIMEOUT);
+		time = ktime_to_ms(ktime_get());
+
+		MDSS_XLOG(rc, time, expected_time, atomic_read(&ctx->koff_cnt));
+		/*
+		 * If we time out, counter is valid and time is less,
+		 * wait again.
+		 */
+	} while (atomic_read(&ctx->koff_cnt) && (rc == 0) &&
+			(time < expected_time));
+
+	return rc;
+}
+
 static int mdss_mdp_cmd_wait4pingpong(struct mdss_mdp_ctl *ctl, void *arg)
 {
 	struct mdss_mdp_cmd_ctx *ctx;
 	struct mdss_panel_data *pdata;
 	unsigned long flags;
-	int rc = 0;
-	u32 status;
-	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
+	int rc = 0, te_irq;
 
 	ctx = (struct mdss_mdp_cmd_ctx *) ctl->intf_ctx[MASTER_CTX];
 	if (!ctx) {
@@ -1900,9 +1917,7 @@ static int mdss_mdp_cmd_wait4pingpong(struct mdss_mdp_ctl *ctl, void *arg)
 	pr_debug("%s: intf_num=%d ctx=%pK koff_cnt=%d\n", __func__,
 			ctl->intf_num, ctx, atomic_read(&ctx->koff_cnt));
 
-	rc = wait_event_timeout(ctx->pp_waitq,
-			atomic_read(&ctx->koff_cnt) == 0,
-			KOFF_TIMEOUT);
+	rc = __mdss_mdp_wait4pingpong(ctx);
 
 	trace_mdp_cmd_wait_pingpong(ctl->num,
 				atomic_read(&ctx->koff_cnt));
@@ -1933,15 +1948,25 @@ static int mdss_mdp_cmd_wait4pingpong(struct mdss_mdp_ctl *ctl, void *arg)
 				__func__,
 				ctl->num, rc, ctx->pp_timeout_report_cnt,
 				atomic_read(&ctx->koff_cnt));
-		if (ctx->pp_timeout_report_cnt == 0) {
-			status = readl_relaxed(mdata->mdp_base +
-				MDSS_REG_HW_INTR2_STATUS);
-			pr_err("TE ISR status 0x%x\n", status);
 
+		/* enable TE irq to check if it is coming from the panel */
+		te_irq = gpio_to_irq(pdata->panel_te_gpio);
+		enable_irq(te_irq);
+
+		/* wait for 20ms to ensure we are getting the next TE */
+		usleep_range(20000, 20010);
+
+		reinit_completion(&pdata->te_done);
+		rc = wait_for_completion_timeout(&pdata->te_done, KOFF_TIMEOUT);
+
+		if (!rc) {
+			MDSS_XLOG(0xbac);
+			mdss_fb_report_panel_dead(ctl->mfd);
+		} else if (ctx->pp_timeout_report_cnt == 0) {
 			MDSS_XLOG(0xbad);
 			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl", "dsi0_phy",
 				"dsi1_ctrl", "dsi1_phy", "vbif", "vbif_nrt",
-				"dbg_bus", "vbif_dbg_bus");
+				"dbg_bus", "vbif_dbg_bus", "panic");
 		} else if (ctx->pp_timeout_report_cnt == MAX_RECOVERY_TRIALS) {
 			MDSS_XLOG(0xbad2);
 			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl", "dsi0_phy",
@@ -1949,6 +1974,10 @@ static int mdss_mdp_cmd_wait4pingpong(struct mdss_mdp_ctl *ctl, void *arg)
 				"dbg_bus", "vbif_dbg_bus", "panic");
 			mdss_fb_report_panel_dead(ctl->mfd);
 		}
+
+		/* disable te irq */
+		disable_irq_nosync(te_irq);
+
 		ctx->pp_timeout_report_cnt++;
 		rc = -EPERM;
 
@@ -2065,7 +2094,6 @@ static int mdss_mdp_cmd_panel_on(struct mdss_mdp_ctl *ctl,
 {
 	struct mdss_mdp_cmd_ctx *ctx, *sctx = NULL;
 	int rc = 0;
-	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
 
 	ctx = (struct mdss_mdp_cmd_ctx *) ctl->intf_ctx[MASTER_CTX];
 	if (!ctx) {
@@ -2120,10 +2148,6 @@ static int mdss_mdp_cmd_panel_on(struct mdss_mdp_ctl *ctl,
 		ctx->intf_stopped = 0;
 		if (sctx)
 			sctx->intf_stopped = 0;
-		ctx->check_tepin = 5;
-		pr_info("%s: INTR2 Status = 0x%x, %d\n", __func__,
-			readl_relaxed(mdata->mdp_base + MDSS_REG_HW_INTR2_STATUS),
-			ctx->check_tepin);
 	} else {
 		pr_err("%s: Panel already on\n", __func__);
 	}
@@ -2735,12 +2759,6 @@ static int mdss_mdp_cmd_kickoff(struct mdss_mdp_ctl *ctl, void *arg)
 
 	mdss_mdp_cmd_set_sync_ctx(ctl, sctl);
 
-	if (ctx->check_tepin > 0) {
-		ctx->check_tepin--;
-		pr_info("%s: INTR2 Status = 0x%x, %d\n", __func__,
-			readl_relaxed(mdata->mdp_base + MDSS_REG_HW_INTR2_STATUS),
-			ctx->check_tepin);
-	}
 	mutex_lock(&ctx->autorefresh_lock);
 	if (ctx->autorefresh_state == MDP_AUTOREFRESH_OFF_REQUESTED) {
 		pr_debug("%s: disable autorefresh ctl%d\n", __func__, ctl->num);
@@ -2771,9 +2789,6 @@ static int mdss_mdp_cmd_kickoff(struct mdss_mdp_ctl *ctl, void *arg)
 		else if (ctx->lineptr_enabled)
 			mdss_mdp_cmd_lineptr_ctrl(ctl, false);
 	}
-
-	writel_relaxed(0xffffffff, ctl->mdata->mdp_base + MDSS_REG_HW_INTR2_CLEAR);
-	wmb();
 
 	/* Kickoff */
 	__mdss_mdp_kickoff(ctl, ctx);

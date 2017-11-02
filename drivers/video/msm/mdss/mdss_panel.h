@@ -271,8 +271,6 @@ enum mdss_intf_events {
 	MDSS_EVENT_DSI_RESET_WRITE_PTR,
 	MDSS_EVENT_PANEL_TIMING_SWITCH,
 	MDSS_EVENT_UPDATE_PARAMS,
-	MDSS_EVENT_PANEL_VDDIO_SWITCH_ON,
-	MDSS_EVENT_PANEL_VDDIO_SWITCH_OFF,
 	MDSS_EVENT_MAX,
 };
 
@@ -603,27 +601,6 @@ struct mdss_panel_roi_alignment {
 	u32 min_height;
 };
 
-/**
- *  HTC: A Struct for Backlgith 1.0.
- *  Apply on backlight_transfer function.
- *  The function will base on brt_data and bl_data to transfer brt and bl value.
- *  The brt and bl was direct map. For internal value, we will use interpolation method to get transfer value.
- *
- *  size: A value to save brt and bl table size.
- *  brt_data: A point referring to brightness table related data.
- *  bl_data: A point referring to backlight table related data
- */
-struct htc_backlight1_table {
-	int size;
-	u16 *brt_data;
-	u16 *bl_data;
-};
-
-enum {
-	PANEL_POWER_CTRL_DEFAULT,
-	PANEL_POWER_CTRL_HX8396C2,
-};
-
 struct mdss_panel_hdr_properties {
 	bool hdr_enabled;
 
@@ -770,12 +747,7 @@ struct mdss_panel_info {
 
 	/* debugfs structure for the panel */
 	struct mdss_panel_debugfs_info *debugfs_info;
-	
-	/*HTC add as below*/
-	struct htc_backlight1_table brt_bl_table;
-	int camera_blk;
-	int power_ctrl;
-	
+
 	/* persistence mode on/off */
 	bool persist_mode;
 
@@ -846,6 +818,9 @@ struct mdss_panel_data {
 	/* To store dsc cfg name passed by bootloader */
 	char dsc_cfg_np_name[MDSS_MAX_PANEL_LEN];
 	struct mdss_panel_data *next;
+
+	int panel_te_gpio;
+	struct completion te_done;
 };
 
 struct mdss_panel_debugfs_info {
