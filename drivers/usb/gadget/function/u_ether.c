@@ -136,6 +136,10 @@ struct eth_dev {
 	u8			host_mac[ETH_ALEN];
 	u8			dev_mac[ETH_ALEN];
 
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+	int			miMaxMtu;
+/*-- 2015/12/25, USB Team, PCN00051 --*/
+
 	/* stats */
 	unsigned long		tx_throttle;
 	unsigned long		rx_throttle;
@@ -234,6 +238,9 @@ module_param(u_ether_rx_pending_thld, uint, S_IRUGO | S_IWUSR);
 	xprintk(dev , KERN_INFO , fmt , ## args)
 
 /*-------------------------------------------------------------------------*/
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+static struct eth_dev *the_dev;
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 
 /* NETWORK DRIVER HOOKUP (to the layer above this driver) */
 
@@ -242,12 +249,21 @@ static int ueth_change_mtu(struct net_device *net, int new_mtu)
 	struct eth_dev	*dev = netdev_priv(net);
 	unsigned long	flags;
 	int		status = 0;
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+	int 		iMaxMtuSet = ETH_FRAME_LEN;
 
+	if (the_dev) {
+		if (the_dev->miMaxMtu == ETH_FRAME_LEN_MAX - ETH_HLEN)
+			iMaxMtuSet = ETH_FRAME_LEN_MAX - ETH_HLEN;
+	}
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 	/* don't change MTU on "live" link (peer won't know) */
 	spin_lock_irqsave(&dev->lock, flags);
 	if (dev->port_usb)
 		status = -EBUSY;
-	else if (new_mtu <= ETH_HLEN || new_mtu > ETH_FRAME_LEN)
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+	else if (new_mtu <= ETH_HLEN || new_mtu > iMaxMtuSet)
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 		status = -ERANGE;
 	else
 		net->mtu = new_mtu;
@@ -436,7 +452,10 @@ static void rx_complete(struct usb_ep *ep, struct usb_request *req)
 		DBG(dev, "rx %s reset\n", ep->name);
 		defer_kevent(dev, WORK_RX_MEMORY);
 quiesce:
-		dev_kfree_skb_any(skb);
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+		if (skb)
+			dev_kfree_skb_any(skb);
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 		goto clean;
 
 	/* data overrun */
@@ -658,15 +677,25 @@ static void process_rx_w(struct work_struct *work)
 	struct eth_dev	*dev = container_of(work, struct eth_dev, rx_work);
 	struct sk_buff	*skb;
 	int		status = 0;
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+	unsigned int	uiCurMtu = 0;
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 
 	if (!dev->port_usb)
 		return;
 
 	set_wake_up_idle(true);
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+	uiCurMtu = dev->net->mtu + ETH_HLEN;
+	if ((uiCurMtu <= ETH_HLEN) || (uiCurMtu > ETH_FRAME_LEN_MAX))
+		uiCurMtu = ETH_FRAME_LEN;
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 	while ((skb = skb_dequeue(&dev->rx_frames))) {
 		if (status < 0
 				|| ETH_HLEN > skb->len
-				|| (skb->len > ETH_FRAME_LEN &&
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+				|| (skb->len > uiCurMtu &&
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
 				test_bit(RMNET_MODE_LLP_ETH, &dev->flags))) {
 			dev->net->stats.rx_errors++;
 			dev->net->stats.rx_length_errors++;
@@ -1079,6 +1108,15 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	u32			fixed_in_len;
 	bool			is_fixed;
 	struct skb_shared_hwtstamps hwtstamps;
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+	if ((!skb) || (IS_ERR(skb)))
+		return NETDEV_TX_OK;
+
+	if ((!net) || (IS_ERR(net)))
+		return NETDEV_TX_OK;
+
+	length = skb->len;
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 
 	spin_lock_irqsave(&dev->lock, flags);
 	if (dev->port_usb) {
@@ -1836,6 +1874,9 @@ struct net_device *gether_setup_name_default(const char *netname)
 	set_bit(RMNET_MODE_LLP_ETH, &dev->flags);
 
 	SET_NETDEV_DEVTYPE(net, &gadget_type);
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+	the_dev = dev;
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 
 	return net;
 }
@@ -2011,8 +2052,18 @@ void gether_cleanup(struct eth_dev *dev)
 	cancel_work_sync(&dev->rx_work);
 	cancel_work_sync(&dev->tx_work);
 	free_netdev(dev->net);
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+	the_dev = NULL;
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 }
 EXPORT_SYMBOL_GPL(gether_cleanup);
+/*++ 2015/12/25, USB Team, PCN00051 ++*/
+int gether_change_mtu(int new_mtu)
+{
+	struct eth_dev *dev = the_dev;
+	return ueth_change_mtu(dev->net, new_mtu);
+}
+/*-- 2015/12/25, USB Team, PCN00051 --*/
 
 void gether_update_dl_max_xfer_size(struct gether *link, uint32_t s)
 {
