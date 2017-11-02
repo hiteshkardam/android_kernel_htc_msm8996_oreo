@@ -30,6 +30,8 @@
 #include "mdss_smmu.h"
 
 #define VSYNC_EXPIRE_TICK	4
+#define KOFF_TIMEOUT_MS 84
+#define KOFF_TIMEOUT msecs_to_jiffies(KOFF_TIMEOUT_MS)
 
 static void mdp3_ctrl_pan_display(struct msm_fb_data_type *mfd);
 static int mdp3_overlay_unset(struct msm_fb_data_type *mfd, int ndx);

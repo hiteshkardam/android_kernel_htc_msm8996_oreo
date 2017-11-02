@@ -61,6 +61,8 @@ struct dss_vreg {
 	int min_voltage;
 	int max_voltage;
 	u32 load[DSS_REG_MODE_MAX];
+	int enable_load;
+	int disable_load;
 	int pre_on_sleep;
 	int post_on_sleep;
 	int pre_off_sleep;
