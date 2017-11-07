@@ -36,6 +36,12 @@
 #include <linux/alarmtimer.h>
 #include <linux/qpnp/qpnp-revid.h>
 
+#ifdef CONFIG_HTC_BATT
+#include <linux/power/htc_battery.h>
+#include <linux/htc_flags.h>
+#include <linux/async.h>
+#endif
+
 /* Register offsets */
 
 /* Interrupt offsets */
@@ -248,7 +254,7 @@ static struct fg_mem_setting settings[FG_MEM_SETTING_MAX] = {
 	SETTING(CHG_TERM_CURRENT, 0x4F8,   2,      250),
 	SETTING(IRQ_VOLT_EMPTY,	 0x458,   3,      3100),
 	SETTING(CUTOFF_VOLTAGE,	 0x40C,   0,      3200),
-	SETTING(VBAT_EST_DIFF,	 0x000,   0,      30),
+	SETTING(VBAT_EST_DIFF,	 0x000,   0,      150),
 	SETTING(DELTA_SOC,	 0x450,   3,      1),
 	SETTING(BATT_LOW,	 0x458,   0,      4200),
 	SETTING(THERM_DELAY,	 0x4AC,   3,      0),
@@ -315,7 +321,11 @@ module_param_named(
 	debug_mask, fg_debug_mask, int, S_IRUSR | S_IWUSR
 );
 
+#ifdef CONFIG_ARCH_MSM8996
+static int fg_reset_on_lockup = 1;
+#else
 static int fg_reset_on_lockup;
+#endif
 
 static int fg_sense_type = -EINVAL;
 static int fg_restart;
@@ -334,6 +344,10 @@ static int fg_sram_update_period_ms = 30000;
 module_param_named(
 	sram_update_period_ms, fg_sram_update_period_ms, int, S_IRUSR | S_IWUSR
 );
+
+#ifdef CONFIG_HTC_BATT_PCN0002
+static bool g_is_ima_error_handling = false;
+#endif 
 
 static bool fg_batt_valid_ocv;
 module_param_named(batt_valid_ocv, fg_batt_valid_ocv, bool, S_IRUSR | S_IWUSR);
@@ -615,6 +629,9 @@ struct fg_chip {
 	struct mutex		ima_recovery_lock;
 	bool			ima_error_handling;
 	bool			block_sram_access;
+#ifdef CONFIG_HTC_BATT_WA_PCN0019
+	bool			skip_check_iacs_ready;
+#endif 
 	bool			irqs_enabled;
 	bool			use_last_soc;
 	int			last_soc;
@@ -653,6 +670,9 @@ static const char *default_batt_type	= "Unknown Battery";
 static const char *loading_batt_type	= "Loading Battery Data";
 static const char *missing_batt_type	= "Disconnected Battery";
 
+#ifdef CONFIG_HTC_BATT_WA_PCN0016
+static struct fg_chip *the_chip;
+#endif 
 /* Log buffer */
 struct fg_log_buffer {
 	size_t rpos;	/* Current 'read' position in buffer */
@@ -1416,6 +1436,9 @@ static void fg_check_ima_error_handling(struct fg_chip *chip)
 	fg_enable_irqs(chip, false);
 	chip->use_last_cc_soc = true;
 	chip->ima_error_handling = true;
+#ifdef CONFIG_HTC_BATT_PCN0002
+	g_is_ima_error_handling = true;
+#endif 
 	if (!work_pending(&chip->ima_error_recovery_work))
 		schedule_work(&chip->ima_error_recovery_work);
 	mutex_unlock(&chip->ima_recovery_lock);
@@ -1477,6 +1500,9 @@ static int fg_check_alg_status(struct fg_chip *chip)
 	if (count == ALG_ST_CHECK_COUNT) {
 		/* If we are here, that means FG ALG is stuck */
 		pr_err("ALG is stuck\n");
+#ifdef CONFIG_HTC_BATT_WA_PCN0019
+		chip->skip_check_iacs_ready = true;
+#endif 
 		fg_check_ima_error_handling(chip);
 		rc = -EBUSY;
 	}
@@ -1487,6 +1513,13 @@ static int fg_check_iacs_ready(struct fg_chip *chip)
 {
 	int rc = 0, timeout = 250;
 	u8 ima_opr_sts = 0;
+
+#ifdef CONFIG_HTC_BATT_WA_PCN0019
+	if(chip->skip_check_iacs_ready == true) {
+		pr_err("skip_check_iacs_ready\n");
+		return -EBUSY;
+	}
+#endif 
 
 	/*
 	 * Additional delay to make sure IACS ready bit is set after
@@ -2004,15 +2037,19 @@ static int fg_backup_sram_registers(struct fg_chip *chip, bool save)
 
 #define SOC_FG_RESET	0xF3
 #define RESET_MASK	(BIT(7) | BIT(5))
+#define SOC_LOW_PWR_CFG 0xF5
 static int fg_reset(struct fg_chip *chip, bool reset)
 {
 	int rc;
+    u8 soc_low_pwr_cfg;
 
 	rc = fg_sec_masked_write(chip, chip->soc_base + SOC_FG_RESET,
 		0xFF, reset ? RESET_MASK : 0, 1);
 	if (rc)
 		pr_err("Error in writing to 0x%x, rc=%d\n", SOC_FG_RESET, rc);
 
+    rc = fg_read(chip, &soc_low_pwr_cfg, chip->soc_base + SOC_LOW_PWR_CFG, 1);
+    pr_info("soc_low_pwr_cfg: 0x%02X\n", soc_low_pwr_cfg);
 	return rc;
 }
 
@@ -2236,6 +2273,37 @@ static int get_monotonic_soc_raw(struct fg_chip *chip)
 		pr_info_ratelimited("raw: 0x%02x\n", cap[0]);
 	return cap[0];
 }
+
+#ifdef CONFIG_HTC_BATT
+#define SYSTEM_SOC_ADDR                0x574
+#define SYSTEM_SOC_OFFSET      0
+#define SYSTEM_SOC_SIZE                2
+static int get_system_soc(struct fg_chip *chip)
+{
+	u8 cap[2];
+	int soc;
+	int rc;
+
+	rc = fg_mem_read(chip, cap, SYSTEM_SOC_ADDR, SYSTEM_SOC_SIZE, SYSTEM_SOC_OFFSET, 0);
+	if (rc) {
+		pr_err("fg_mem read failed: addr=%03x, rc=%d\n",
+			SYSTEM_SOC_ADDR, rc);
+		return rc;
+	}
+	soc = ((cap[1] << 8) + cap[0]) * 10000 / 0xffff;
+
+	if (fg_debug_mask & FG_POWER_SUPPLY)
+		pr_info_ratelimited("raw: 0x%02x\n", soc);
+	return soc;
+}
+#endif
+
+#ifdef CONFIG_HTC_BATT_PCN0002
+bool get_ima_error_status(void)
+{
+	return g_is_ima_error_handling;
+}
+#endif 
 
 #define EMPTY_CAPACITY		0
 #define DEFAULT_CAPACITY	50
@@ -2515,7 +2583,12 @@ static int fg_is_batt_id_valid(struct fg_chip *chip)
 		return rc;
 	}
 
-	pr_debug("fg batt sts 0x%x\n", fg_batt_sts);
+	if (fg_debug_mask & FG_IRQS)
+#ifdef CONFIG_HTC_BATT
+		pr_debug("fg batt sts 0x%x\n", fg_batt_sts);
+#else
+		pr_info("fg batt sts 0x%x\n", fg_batt_sts);
+#endif
 
 	return (fg_batt_sts & BATT_IDED) ? 1 : 0;
 }
@@ -4657,6 +4730,11 @@ static int fg_power_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
 		val->intval = fg_get_current_cc(chip);
 		break;
+#ifdef CONFIG_HTC_BATT
+	case POWER_SUPPLY_PROP_SYSTEM_SOC:
+		val->intval = get_system_soc(chip);
+		break;
+#endif 
 	case POWER_SUPPLY_PROP_HI_POWER:
 		val->intval = !!chip->bcl_lpm_disabled;
 		break;
@@ -4836,6 +4914,30 @@ static int fg_property_is_writeable(struct power_supply *psy,
 	return 0;
 }
 
+#ifdef CONFIG_HTC_BATT_WA_PCN0016
+#define DUMP_FG_REG_START	0x4000
+#define DUMP_FG_REG_SIZE		0x500
+void dump_fg_reg(void)
+{
+	u8	reg;
+	int	reg_offset;
+
+	for (reg_offset = 0;reg_offset < DUMP_FG_REG_SIZE; reg_offset++){
+		fg_read(the_chip, &reg, DUMP_FG_REG_START + reg_offset, 1);
+		pr_info("0x%04x: 0x%02X\n", (DUMP_FG_REG_START + reg_offset), reg);
+	}
+}
+
+void force_dump_fg_sram(void)
+{
+	schedule_work(&the_chip->dump_sram);
+}
+#endif 
+
+#ifdef CONFIG_HTC_BATT_WA_PCN0016
+#define SRAM_DUMP_START_0x0		0x0
+#define SRAM_DUMP_START_0x200	0x200
+#endif 
 #define SRAM_DUMP_START		0x400
 #define SRAM_DUMP_LEN		0x200
 static void dump_sram(struct work_struct *work)
@@ -4873,6 +4975,36 @@ static void dump_sram(struct work_struct *work)
 				INT_RT_STS(chip->mem_base), rc);
 	else
 		pr_info("memif rt_sts: 0x%x\n", rt_sts);
+
+#ifdef CONFIG_HTC_BATT_WA_PCN0016
+	
+	dump_fg_reg();
+
+	
+	rc = fg_mem_read(chip, buffer, SRAM_DUMP_START_0x0, SRAM_DUMP_LEN, 0, 0);
+	if (rc) {
+		pr_err("dump failed: rc = %d\n", rc);
+		return;
+	}
+
+	for (i = 0; i < SRAM_DUMP_LEN; i += 4) {
+		str[0] = '\0';
+		fill_string(str, DEBUG_PRINT_BUFFER_SIZE, buffer + i, 4);
+		pr_info("%03X %s\n", SRAM_DUMP_START_0x0 + i, str);
+	}
+
+	rc = fg_mem_read(chip, buffer, SRAM_DUMP_START_0x200, SRAM_DUMP_LEN, 0, 0);
+	if (rc) {
+		pr_err("dump failed: rc = %d\n", rc);
+		return;
+	}
+
+	for (i = 0; i < SRAM_DUMP_LEN; i += 4) {
+		str[0] = '\0';
+		fill_string(str, DEBUG_PRINT_BUFFER_SIZE, buffer + i, 4);
+		pr_info("%03X %s\n", SRAM_DUMP_START_0x200 + i, str);
+	}
+#endif 
 
 	rc = fg_mem_read(chip, buffer, SRAM_DUMP_START, SRAM_DUMP_LEN, 0, 0);
 	if (rc) {
@@ -6594,6 +6726,16 @@ done:
 	pr_info("Battery SOC: %d, V: %duV\n", get_prop_capacity(chip),
 		fg_data[FG_DATA_VOLTAGE].value);
 	complete_all(&chip->fg_reset_done);
+#ifdef CONFIG_HTC_BATT_PCN0006
+		if (get_kernel_flag() & KERNEL_FLAG_ENABLE_BMS_CHARGER_LOG)
+			fg_debug_mask = 0xFF;
+		else
+			fg_debug_mask = 0x04;
+#endif 
+#ifdef CONFIG_HTC_BATT_PCN0014
+		htc_battery_probe_process(GAUGE_PROBE_DONE);
+#endif 
+
 	return rc;
 no_profile:
 	chip->soc_reporting_ready = true;
@@ -8422,7 +8564,9 @@ static void ima_error_recovery_work(struct work_struct *work)
 
 	if (fg_debug_mask & FG_STATUS)
 		pr_info("resetting FG\n");
-
+#ifdef CONFIG_HTC_BATT_WA_PCN0019
+	chip->skip_check_iacs_ready = false;
+#endif 
 	/* Assert FG reset */
 	rc = fg_reset(chip, true);
 	if (rc) {
@@ -8516,8 +8660,12 @@ out:
 	schedule_delayed_work(&chip->check_sanity_work,
 		msecs_to_jiffies(1000));
 	chip->ima_error_handling = false;
+#ifdef CONFIG_HTC_BATT_PCN0002
+	g_is_ima_error_handling = false;
+#endif 
 	mutex_unlock(&chip->ima_recovery_lock);
 	fg_relax(&chip->fg_reset_wakeup_source);
+    pr_info("ima_error_recovery_work end\n");
 }
 
 #define DIG_MINOR		0x0
@@ -8924,6 +9072,10 @@ static int fg_probe(struct spmi_device *spmi)
 		chip->revision[ANA_MAJOR], chip->revision[ANA_MINOR],
 		chip->pmic_subtype);
 
+#ifdef CONFIG_HTC_BATT_WA_PCN0016
+	the_chip = chip;
+#endif 
+
 	return rc;
 
 power_supply_unregister:
@@ -9191,11 +9343,22 @@ static struct spmi_driver fg_driver = {
 	.shutdown	= fg_shutdown,
 };
 
+#ifdef CONFIG_HTC_BATT
+static void __init fg_init_async(void *unused, async_cookie_t cookie)
+{
+	spmi_driver_register(&fg_driver);
+}
+static int __init fg_init(void)
+{
+	async_schedule(fg_init_async, NULL);
+	return 0;
+}
+#else
 static int __init fg_init(void)
 {
 	return spmi_driver_register(&fg_driver);
 }
-
+#endif
 static void __exit fg_exit(void)
 {
 	return spmi_driver_unregister(&fg_driver);
