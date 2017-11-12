@@ -39,7 +39,7 @@ fi
 #  m=$k/out/$c/system/lib/modules
 #  z=$c-$today
 
-TOOLCHAIN=/home/assassin/android/aarch64-linux-android-4.9/bin/aarch64-linux-android-
+TOOLCHAIN=/home/indian-mafia/android/aarch64-linux-android-4.9/bin/aarch64-linux-android-
 						
 export ARCH=arm64
 export SUBARCH=arm64
