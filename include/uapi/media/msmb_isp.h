@@ -24,8 +24,6 @@
 
 #define ISP_STATS_STREAM_BIT  0x80000000
 
-#define VFE_HW_LIMIT 1
-
 struct msm_vfe_cfg_cmd_list;
 
 enum ISP_START_PIXEL_PATTERN {
@@ -502,7 +500,6 @@ enum msm_vfe_reg_cfg_type {
 	VFE_HW_UPDATE_UNLOCK,
 	SET_WM_UB_SIZE,
 	SET_UB_POLICY,
-	GET_VFE_HW_LIMIT,
 };
 
 struct msm_vfe_cfg_cmd2 {
@@ -1072,6 +1069,9 @@ enum msm_isp_ioctl_cmd_code {
 #define VIDIOC_MSM_ISP_UNMAP_BUF \
 	_IOWR('V', MSM_ISP_UNMAP_BUF, \
 		struct msm_isp_unmap_buf_req)
+
+#define VIDIOC_MSM_ISP_AHB_CLK_CFG \
+	_IOWR('V', BASE_VIDIOC_PRIVATE+25, struct msm_isp_ahb_clk_cfg)
 
 #define VIDIOC_MSM_ISP_FETCH_ENG_MULTI_PASS_START \
 	_IOWR('V', MSM_ISP_FETCH_ENG_MULTI_PASS_START, \
