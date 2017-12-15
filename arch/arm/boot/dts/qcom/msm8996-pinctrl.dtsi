@@ -1962,8 +1962,8 @@
 //
 //				config {
 //					pins = "gpio77";
-//					drive-strength = <8>;   /* 8 mA */
-//					bias-disable;           /* NO PULL */
+//					drive-strength = <2>;   /* 2 mA */
+//					bias-pull-down;         /* PULL DOWN */
 //				};
 //			};
 //		};
@@ -2082,35 +2082,6 @@
 			};
 		};
 
-//HTC_AUD_START
-//		sec_mi2s_sd1 {
-//			sec_mi2s_sd1_sleep: sec_mi2s_sd1_sleep {
-//				mux {
-//					pins = "gpio83";
-//					function = "sec_mi2s";
-//				};
-//
-//				config {
-//					pins = "gpio83";
-//					drive-strength = <2>;   /* 2 mA */
-//					bias-pull-down;         /* PULL DOWN */
-//				};
-//			};
-//
-//			sec_mi2s_sd1_active: sec_mi2s_sd1_active {
-//				mux {
-//					pins = "gpio83";
-//					function = "sec_mi2s";
-//				};
-//
-//				config {
-//					pins = "gpio83";
-//					drive-strength = <8>;   /* 8 mA */
-//					bias-disable;           /* NO PULL */
-//				};
-//			};
-//		};
-//HTC_AUD_END
 
 		quat_mi2s {
 			quat_mi2s_sleep: quat_mi2s_sleep {
@@ -2194,32 +2165,6 @@
 			};
 		};
 
-		quat_mi2s_sd0 {
-			quat_mi2s_sd0_sleep: quat_mi2s_sd0_sleep {
-				mux {
-					pins = "gpio60";
-					function = "qua_mi2s";
-				};
-
-				config {
-					pins = "gpio60";
-					drive-strength = <2>;   /* 2 mA */
-					bias-pull-down;         /* PULL DOWN */
-				};
-			};
-			quat_mi2s_sd0_active: quat_mi2s_sd0_active {
-				mux {
-					pins = "gpio60";
-					function = "qua_mi2s";
-				};
-
-				config {
-					pins = "gpio60";
-					drive-strength = <8>;   /* 8 mA */
-					bias-disable;           /* NO PULL */
-				};
-			};
-		};
 
 		tert_tdm {
 			tert_tdm_sleep: tert_tdm_sleep {
