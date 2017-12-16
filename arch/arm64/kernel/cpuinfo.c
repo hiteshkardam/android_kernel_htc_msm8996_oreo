@@ -32,6 +32,8 @@
 #include <linux/seq_file.h>
 #include <linux/sched.h>
 #include <linux/smp.h>
+#include <linux/of_address.h>
+#include <linux/io.h>
 
 /*
  * In case the boot CPU is hotpluggable, we record its initial state and
@@ -100,9 +102,73 @@ static const char *compat_hwcap2_str[] = {
 };
 #endif /* CONFIG_COMPAT */
 
+static u32 cx_fuse_data = 0x0;
+static u32 mx_fuse_data = 0x0;
+
+static const u32 vddcx_pvs_retention_data[8] =
+{
+   600000,
+   550000,
+   500000,
+   450000,
+   400000,
+   400000, 
+   400000, 
+   600000
+};
+
+static const u32 vddmx_pvs_retention_data[8] =
+{
+   700000,
+   650000,
+   580000,
+   550000,
+   490000,
+   490000,
+   490000,
+   490000
+};
+
+static int read_cx_fuse_setting(void){
+	if(cx_fuse_data != 0x0)
+		
+		return ((cx_fuse_data & (0x7 << 29)) >> 29);
+	else
+		return -ENOMEM;
+}
+
+static int read_mx_fuse_setting(void){
+	if(mx_fuse_data != 0x0)
+		
+		return ((mx_fuse_data & (0x7 << 2)) >> 2);
+	else
+		return -ENOMEM;
+}
+
+static u32 Get_min_cx(void) {
+	u32 lookup_val = 0;
+	int mapping_data;
+	mapping_data = read_cx_fuse_setting();
+	if(mapping_data >= 0)
+		lookup_val = vddcx_pvs_retention_data[mapping_data];
+	return lookup_val;
+}
+
+static u32 Get_min_mx(void) {
+	u32 lookup_val = 0;
+	int mapping_data;
+	mapping_data = read_mx_fuse_setting();
+	if(mapping_data >= 0)
+		lookup_val = vddmx_pvs_retention_data[mapping_data];
+	return lookup_val;
+}
+
+extern volatile u64 htc_target_quot[2][4];
+extern volatile int htc_target_quot_len;
+
 static int c_show(struct seq_file *m, void *v)
 {
-	int i, j;
+	int i, j,size;
 
 	for_each_online_cpu(i) {
 		struct cpuinfo_arm64 *cpuinfo = &per_cpu(cpu_data, i);
@@ -116,6 +182,9 @@ static int c_show(struct seq_file *m, void *v)
 #ifdef CONFIG_SMP
 		seq_printf(m, "processor\t: %d\n", i);
 #endif
+
+		seq_printf(m, "min_vddcx\t: %d\n", Get_min_cx());
+ 		seq_printf(m, "min_vddmx\t: %d\n", Get_min_mx());
 
 		seq_printf(m, "BogoMIPS\t: %lu.%02lu\n",
 			   loops_per_jiffy / (500000UL/HZ),
@@ -157,6 +226,14 @@ static int c_show(struct seq_file *m, void *v)
 		seq_printf(m, "Hardware\t: %s\n", machine_name);
 	else
 		seq_printf(m, "Hardware\t: %s\n", arch_read_hardware_id());
+
+	size = sizeof(htc_target_quot)/(sizeof(u64)*htc_target_quot_len);
+	seq_printf(m, "CPU param\t: ");
+	for (i = 0; i < size; i++) {
+		for(j = 0; j < htc_target_quot_len; j++)
+			seq_printf(m, "%lld ", htc_target_quot[i][j]);
+	}
+	seq_printf(m, "\n");
 
 	return 0;
 }
@@ -273,3 +350,40 @@ u64 __attribute_const__ icache_get_ccsidr(void)
 	    : "=r"(ccsidr) : "r"(1L));
 	return ccsidr;
 }
+
+static int msm8996_read_cx_fuse(void){
+	void __iomem *addr;
+	struct device_node *dn = of_find_compatible_node(NULL,
+						NULL, "qcom,cpucx-8996");
+	if (dn && (cx_fuse_data == 0x0)) {
+		addr = of_iomap(dn, 0);
+		if (!addr)
+			return -ENOMEM;
+		cx_fuse_data = readl_relaxed(addr);
+		iounmap(addr);
+	}
+	else {
+		return -ENOMEM;
+	}
+	return 0;
+}
+arch_initcall_sync(msm8996_read_cx_fuse);
+
+static int msm8996_read_mx_fuse(void){
+	void __iomem *addr;
+	struct device_node *dn = of_find_compatible_node(NULL,
+						NULL, "qcom,cpumx-8996");
+	if (dn && (mx_fuse_data == 0x0)) {
+		addr = of_iomap(dn, 0);
+		if (!addr)
+			return -ENOMEM;
+		mx_fuse_data = readl_relaxed(addr);
+		iounmap(addr);
+	}
+	else {
+		return -ENOMEM;
+	}
+	return 0;
+}
+
+arch_initcall_sync(msm8996_read_mx_fuse);
