@@ -10,7 +10,7 @@
 # * I/O expander drivers go to drivers/gpio
 #
 #HTC_AUD
-obj-$(CONFIG_AMP_TFA9888)       += tfa9888.o
+#obj-$(CONFIG_AMP_TFA9888)       += tfa9888.o
 
 #NFC ++
 obj-$(CONFIG_SENSORS_NFC_PN548) += pn548.o
