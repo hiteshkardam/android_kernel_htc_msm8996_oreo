@@ -176,6 +176,9 @@ obj-$(CONFIG_BIF)		+= bif/
 obj-$(CONFIG_SENSORS)		+= sensors/
 obj-$(CONFIG_SENSORS_SSC)	+= sensors/
 
+# <t-base drivers
+obj-$(CONFIG_TRUSTONIC_TEE)	+= gud/
+
 # htc_ril driver
 obj-y += htc_ril/
 
