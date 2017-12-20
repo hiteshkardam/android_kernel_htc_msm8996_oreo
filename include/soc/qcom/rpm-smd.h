@@ -14,6 +14,16 @@
 #ifndef __ARCH_ARM_MACH_MSM_RPM_SMD_H
 #define __ARCH_ARM_MACH_MSM_RPM_SMD_H
 
+#define	RPM_HTC_CMD_REQ	0x63637468	
+#define	RAMDUMP_MODE_PARA_ENABLE	0x67626472 
+
+typedef enum
+{
+	RHCF_GENERIC_CMD = 0,
+	RHCF_NUM,
+} rpm_htc_cmd_t;
+
+
 /**
  * enum msm_rpm_set - RPM enumerations for sleep/active set
  * %MSM_RPM_CTX_SET_0: Set resource parameters for active mode.
