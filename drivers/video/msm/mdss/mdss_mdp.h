@@ -644,6 +644,8 @@ struct mdss_mdp_ctl {
 	/* vsync handler for FRC */
 	struct mdss_mdp_vsync_handler frc_vsync_handler;
 	bool commit_in_progress;
+	/* HTC: */
+	struct mutex event_lock;
 };
 
 struct mdss_mdp_mixer {
@@ -1023,6 +1025,9 @@ struct mdss_overlay_private {
 	struct kthread_worker worker;
 	struct kthread_work vsync_work;
 	struct task_struct *thread;
+	
+	void *splash_mem_vaddr;
+	dma_addr_t splash_mem_dma;
 };
 
 struct mdss_mdp_set_ot_params {
