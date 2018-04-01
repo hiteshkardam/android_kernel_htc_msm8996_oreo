@@ -89,16 +89,19 @@ irqreturn_t hw_vsync_handler(int irq, void *data)
 		return IRQ_HANDLED;
 	}
 
-	if (pstatus_data)
-		mod_delayed_work(system_wq, &pstatus_data->check_status,
-			msecs_to_jiffies(interval));
-	else
+	if (pstatus_data) {
+		if (ctrl_pdata->status_mode == ESD_TE) {
+			pr_info("%s: count=%d\n", __func__, atomic_read(&ctrl_pdata->te_irq_ready));
+			mod_delayed_work(system_wq, &pstatus_data->check_status,
+				msecs_to_jiffies(interval));
+		}
+	} else
 		pr_err("Pstatus data is NULL\n");
 
-	if (!atomic_read(&ctrl_pdata->te_irq_ready)) {
+	atomic_inc(&ctrl_pdata->te_irq_ready);
+	if (atomic_read(&ctrl_pdata->te_irq_ready) >= 3)
 		complete_all(&ctrl_pdata->te_irq_comp);
-		atomic_inc(&ctrl_pdata->te_irq_ready);
-	}
+
 
 	return IRQ_HANDLED;
 }
@@ -154,14 +157,12 @@ static int fb_event_callback(struct notifier_block *self,
 	pdata->mfd = evdata->info->par;
 	if (event == FB_EVENT_BLANK) {
 		int *blank = evdata->data;
-		struct dsi_status_data *pdata = container_of(self,
-				struct dsi_status_data, fb_notifier);
-		pdata->mfd = evdata->info->par;
 
 		switch (*blank) {
 		case FB_BLANK_UNBLANK:
+			pdata->vendor_esd_error = false;
 			schedule_delayed_work(&pdata->check_status,
-				msecs_to_jiffies(interval));
+				msecs_to_jiffies(1000));
 			break;
 		case FB_BLANK_VSYNC_SUSPEND:
 		case FB_BLANK_NORMAL:
@@ -175,6 +176,7 @@ static int fb_event_callback(struct notifier_block *self,
 			pr_err("Unknown case in FB_EVENT_BLANK event\n");
 			break;
 		}
+		pr_info("%s: fb%d, event=%lu, blank=%d\n", __func__, mfd->index, event, *blank);
 	}
 	return 0;
 }
