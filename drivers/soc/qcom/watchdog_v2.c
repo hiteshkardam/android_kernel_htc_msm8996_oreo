@@ -29,6 +29,9 @@
 #include <soc/qcom/scm.h>
 #include <soc/qcom/memory_dump.h>
 #include <soc/qcom/watchdog.h>
+#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
+#include <linux/htc_debug_tools.h>
+#endif
 
 #define MODULE_NAME "msm_watchdog"
 #define WDT0_ACCSCSSNBARK_INT 0
@@ -87,6 +90,33 @@ struct msm_watchdog_data {
  */
 static int enable = 1;
 module_param(enable, int, 0);
+#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
+int htc_debug_watchdog_enabled(void)
+{
+	return enable;
+}
+EXPORT_SYMBOL(htc_debug_watchdog_enabled);
+
+static void __iomem *msm_wdt_base;
+void msm_watchdog_bark(void)
+{
+	pr_info("%s has been called! dumping stack...\n", __func__);
+	dump_stack();
+
+	if (!enable) {
+		pr_info("%s: MSM Apps Watchdog is not enabled.\n", __func__);
+		return;
+	}
+
+	pr_info("%s: triggering MSM Apps Watchdog bark...\n", __func__);
+
+	__raw_writel(1, msm_wdt_base + WDT0_RST);
+	__raw_writel(0x31F3, msm_wdt_base + WDT0_BARK_TIME);
+	__raw_writel(5*0x31F3, msm_wdt_base + WDT0_BITE_TIME);
+	__raw_writel(1, msm_wdt_base + WDT0_EN);
+}
+EXPORT_SYMBOL(msm_watchdog_bark);
+#endif /* CONFIG_HTC_DEBUG_WATCHDOG */
 
 /*
  * On the kernel command line specify
@@ -332,6 +362,14 @@ static __ref int watchdog_kthread(void *arg)
 		/* Check again before scheduling *
 		 * Could have been changed on other cpu */
 		mod_timer(&wdog_dd->pet_timer, jiffies + delay_time);
+#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
+		htc_debug_watchdog_update_last_pet(wdog_dd->last_pet);
+		/* TODO: support this funciton with CONFIG_SPARSE_IRQ */
+#if !defined(CONFIG_SPARSE_IRQ)
+		/* records last_irqs */
+		htc_debug_watchdog_dump_irqs(0);
+#endif
+#endif /* CONFIG_HTC_DEBUG_WATCHDOG */
 	}
 	return 0;
 }
@@ -592,6 +630,9 @@ static void init_watchdog_data(struct msm_watchdog_data *wdog_dd)
 		enable_percpu_irq(wdog_dd->bark_irq, 0);
 	if (ipi_opt_en)
 		cpu_pm_register_notifier(&wdog_cpu_pm_nb);
+#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
+	htc_debug_watchdog_update_last_pet(wdog_dd->last_pet);
+#endif
 	dev_info(wdog_dd->dev, "MSM Watchdog Initialized\n");
 	return;
 }
@@ -696,6 +737,9 @@ static int msm_watchdog_probe(struct platform_device *pdev)
 	if (ret)
 		goto err;
 
+#if defined(CONFIG_HTC_DEBUG_WATCHDOG)
+	msm_wdt_base = wdog_dd->base;
+#endif
 	wdog_data = wdog_dd;
 	wdog_dd->dev = &pdev->dev;
 	platform_set_drvdata(pdev, wdog_dd);
