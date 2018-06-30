@@ -346,11 +346,6 @@ int mmc_add_card(struct mmc_card *card)
 	switch (card->type) {
 	case MMC_TYPE_MMC:
 		type = "MMC";
-		if (stats_workqueue && !card->host->perf_enable) {
-			card->host->perf_enable = true;
-			queue_delayed_work(stats_workqueue, &card->host->stats_work,
-				msecs_to_jiffies(MMC_STATS_INTERVAL));
-		}
 		break;
 	case MMC_TYPE_SD:
 		type = "SD";
@@ -359,11 +354,6 @@ int mmc_add_card(struct mmc_card *card)
 				type = "SDXC";
 			else
 				type = "SDHC";
-		}
-		if (stats_workqueue && !card->host->perf_enable) {
-			card->host->perf_enable = true;
-			queue_delayed_work(stats_workqueue, &card->host->stats_work,
-				msecs_to_jiffies(MMC_STATS_INTERVAL));
 		}
 		break;
 	case MMC_TYPE_SDIO:
