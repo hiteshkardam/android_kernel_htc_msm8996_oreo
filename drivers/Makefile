@@ -172,6 +172,3 @@ obj-$(CONFIG_BIF)		+= bif/
 
 obj-$(CONFIG_SENSORS_SSC)	+= sensors/
 
-
-# HTC debug
-obj-$(CONFIG_HTC_DEBUG)                += htc_debug/
