@@ -172,6 +172,6 @@ obj-$(CONFIG_BIF)		+= bif/
 
 obj-$(CONFIG_SENSORS_SSC)	+= sensors/
 
-# HTC debug
-obj-$(CONFIG_HTC_DEBUG)			+= htc_debug/
 obj-$(CONFIG_HTC_DEBUG_FOOTPRINT)	+= htc_mnemosyne/
+# <t-base drivers
+obj-$(CONFIG_MOBICORE_DRIVER)	+= gud/
