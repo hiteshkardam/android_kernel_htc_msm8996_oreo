@@ -48,6 +48,13 @@
 #define STM_RSP_STATUS_INDEX		8
 #define STM_RSP_NUM_BYTES		9
 
+#define SMD_DRAIN_BUF_SIZE 4096
+/*++ 2015/07/14, USB Team, PCN00012 ++*/
+extern unsigned diag7k_debug_mask;
+extern unsigned diag9k_debug_mask;
+/*-- 2015/07/14, USB Team, PCN00012 --*/
+int diag_debug_buf_idx;
+unsigned char diag_debug_buf[1024];
 static int timestamp_switch;
 module_param(timestamp_switch, int, 0644);
 
@@ -155,6 +162,7 @@ int chk_apps_only(void)
 	case MSM_CPU_8627:
 	case MSM_CPU_9615:
 	case MSM_CPU_8974:
+	case MSM_CPU_8996:/*++ 2015/07/14, USB Team, PCN00012 ++*/
 		return 1;
 	default:
 		return 0;
@@ -216,7 +224,8 @@ void chk_logging_wakeup(void)
 		for (i = 0; i < driver->num_clients; i++) {
 			if (driver->client_map[i].pid != pid)
 				continue;
-			if (driver->data_ready[i] & USER_SPACE_DATA_TYPE)
+/*++ 2015/07/14, USB Team, PCN00012 ++*/
+			if (driver->data_ready[i] & USERMODE_DIAGFWD)
 				continue;
 			/*
 			 * At very high logging rates a race condition can
@@ -226,11 +235,12 @@ void chk_logging_wakeup(void)
 			 * their data read/logged. Detect and remedy this
 			 * situation.
 			 */
-			driver->data_ready[i] |= USER_SPACE_DATA_TYPE;
+			driver->data_ready[i] |= USERMODE_DIAGFWD;
 			pr_debug("diag: Force wakeup of logging process\n");
 			wake_up_interruptible(&driver->wait_q);
 			break;
 		}
+/*-- 2015/07/14, USB Team, PCN00012 --*/
 		/*
 		 * Diag Memory Device is in normal. Check only for the first
 		 * index as all the indices point to the same session
@@ -1126,6 +1136,9 @@ void diag_process_hdlc_pkt(void *data, unsigned len,
 		goto fail;
 	}
 
+/*++ 2015/07/14, USB Team, PCN00012 ++*/
+	DIAGFWD_DBUG("HDLC decode fn, len of data  %d\n", len);
+/*-- 2015/07/14, USB Team, PCN00012 --*/
 	hdlc_decode->dest_ptr = driver->hdlc_buf + driver->hdlc_buf_len;
 	hdlc_decode->dest_size = DIAG_MAX_HDLC_BUF_SIZE - driver->hdlc_buf_len;
 	hdlc_decode->src_ptr = data;
@@ -1196,6 +1209,7 @@ static int diagfwd_mux_open(int id, int mode)
 
 	switch (mode) {
 	case DIAG_USB_MODE:
+		driver->qxdmusb_drop = 0;/*++ 2015/10/23, USB Team, PCN00026 ++*/
 		driver->usb_connected = 1;
 		break;
 	case DIAG_MEMORY_DEVICE_MODE:
@@ -1229,6 +1243,7 @@ static int diagfwd_mux_close(int id, int mode)
 
 	switch (mode) {
 	case DIAG_USB_MODE:
+		driver->qxdmusb_drop = 1;/*++ 2015/10/23, USB Team, PCN00026 ++*/
 		driver->usb_connected = 0;
 		break;
 	case DIAG_MEMORY_DEVICE_MODE:
@@ -1583,7 +1598,7 @@ int diagfwd_init(void)
 	for (i = 0; i < DIAG_NUM_PROC; i++)
 		driver->real_time_mode[i] = 1;
 	driver->supports_separate_cmdrsp = 1;
-	driver->supports_apps_hdlc_encoding = 1;
+	driver->supports_apps_hdlc_encoding = 0;/*++ 2015/07/14, USB Team, PCN00012 ++*/
 	mutex_init(&driver->diag_hdlc_mutex);
 	mutex_init(&driver->diag_cntl_mutex);
 	mutex_init(&driver->mode_lock);
