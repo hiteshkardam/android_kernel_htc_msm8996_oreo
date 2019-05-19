@@ -726,6 +726,7 @@ static int hdmi_hdcp_transfer_v_h(struct hdmi_hdcp_ctrl *hdcp_ctrl)
 
 	phy_addr = hdcp_ctrl->init_data.phy_addr;
 
+	memset(buf, 0, sizeof(buf));
 	io = hdcp_ctrl->init_data.core_io;
 	memset(&ddc_data, 0, sizeof(ddc_data));
 	ddc_data.dev_addr = 0x74;

@@ -29,7 +29,7 @@
 #endif
 
 #define XLOG_DEFAULT_PANIC 1
-#define XLOG_DEFAULT_REGDUMP 0x2 /* dump in RAM */
+#define XLOG_DEFAULT_REGDUMP 0x3 /* dump in LOG and RAM */
 #define XLOG_DEFAULT_DBGBUSDUMP 0x2 /* dump in RAM */
 #define XLOG_DEFAULT_VBIF_DBGBUSDUMP 0x2 /* dump in RAM */
 
@@ -201,10 +201,15 @@ static ssize_t mdss_xlog_dump_entry(char *xlog_buf, ssize_t xlog_buf_size)
 static void mdss_xlog_dump_all(void)
 {
 	char xlog_buf[MDSS_XLOG_BUF_MAX];
+	int count = 0;
 
 	while (__mdss_xlog_dump_calc_range()) {
 		mdss_xlog_dump_entry(xlog_buf, MDSS_XLOG_BUF_MAX);
 		pr_info("%s", xlog_buf);
+		count++;
+
+		if ((count % 32)==0)
+		    mdelay(5);
 	}
 }
 
