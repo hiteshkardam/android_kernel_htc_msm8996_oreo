@@ -1,5 +1,4 @@
-/* Copyright (c) 2014-2015, 2016, 2018 The Linux Foundation.
- * All rights reserved.
+/* Copyright (c) 2014-2015, 2016, 2018 The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -199,8 +198,8 @@ int diag_md_write(int id, unsigned char *buf, int len, int ctx)
 			continue;
 
 		found = 1;
-		if (!(driver->data_ready[i] & USER_SPACE_DATA_TYPE)) {
-			driver->data_ready[i] |= USER_SPACE_DATA_TYPE;
+		if (!(driver->data_ready[i] & USERMODE_DIAGFWD)) {
+		driver->data_ready[i] |= USERMODE_DIAGFWD;/*++ 2015/07/14, USB Team, PCN00012 ++*/
 			atomic_inc(&driver->data_ready_notif[i]);
 		}
 		pr_debug("diag: wake up logging process\n");

@@ -27,6 +27,9 @@
 
 #define DIAG_SET_FEATURE_MASK(x) (feature_bytes[(x)/8] |= (1 << (x & 0x7)))
 
+/*++ 2015/10/26, USB Team, PCN00033 ++*/
+extern int diag_rb_enable;
+/*-- 2015/10/26, USB Team, PCN00033 --*/
 struct diag_mask_info msg_mask;
 struct diag_mask_info msg_bt_mask;
 struct diag_mask_info log_mask;
@@ -929,6 +932,14 @@ static int diag_cmd_set_all_msg_mask(unsigned char *src_buf, int src_len,
 	write_len += header_len;
 
 	for (i = 0; i < NUM_PERIPHERALS; i++) {
+		if (i == PERIPHERAL_MODEM && (diag_rb_enable & DQ_FILTER_MASK)) {
+			printk("diag(%d): Filter Modem mask\n", __LINE__);
+			continue;
+		}
+		if (i == PERIPHERAL_MODEM && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+			printk("diag(%d): Filter Modem mask\n", __LINE__);
+			continue;
+		}
 		if (!diag_check_update(i, pid))
 			continue;
 		diag_send_msg_mask_update(i, ALL_SSID, ALL_SSID);
@@ -1031,12 +1042,21 @@ static int diag_cmd_update_event_mask(unsigned char *src_buf, int src_len,
 	memcpy(dest_buf + write_len, mask_info->ptr, mask_len);
 	write_len += mask_len;
 
+/*++ 2015/10/26, USB Team, PCN00033 ++*/
 	for (i = 0; i < NUM_PERIPHERALS; i++) {
+		if (i == PERIPHERAL_MODEM && (diag_rb_enable & DQ_FILTER_MASK)) {
+			printk("diag(%d): Filter Modem mask\n", __LINE__);
+			continue;
+		}
+		if (i == PERIPHERAL_MODEM && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+			printk("diag(%d): Filter Modem mask\n", __LINE__);
+			continue;
+		}
 		if (!diag_check_update(i, pid))
 			continue;
 		diag_send_event_mask_update(i);
 	}
-
+/*-- 2015/10/26, USB Team, PCN00033 --*/
 	return write_len;
 }
 
@@ -1088,11 +1108,21 @@ static int diag_cmd_toggle_events(unsigned char *src_buf, int src_len,
 	 */
 	header.cmd_code = DIAG_CMD_EVENT_TOGGLE;
 	header.padding = 0;
+/*++ 2015/10/26, USB Team, PCN00033 ++*/
 	for (i = 0; i < NUM_PERIPHERALS; i++) {
+		if (i == PERIPHERAL_MODEM && (diag_rb_enable & DQ_FILTER_MASK)) {
+			printk("diag(%d): Filter Modem mask\n", __LINE__);
+			continue;
+		}
+		if (i == PERIPHERAL_MODEM && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+			printk("diag(%d): Filter Modem mask\n", __LINE__);
+			continue;
+		}
 		if (!diag_check_update(i, pid))
 			continue;
 		diag_send_event_mask_update(i);
 	}
+/*-- 2015/10/26, USB Team, PCN00033 --*/
 	memcpy(dest_buf, &header, sizeof(header));
 	write_len += sizeof(header);
 
@@ -1378,11 +1408,21 @@ static int diag_cmd_set_log_mask(unsigned char *src_buf, int src_len,
 	memcpy(dest_buf + write_len, src_buf + read_len, payload_len);
 	write_len += payload_len;
 
+/*++ 2015/10/26, USB Team, PCN00033 ++*/
 	for (i = 0; i < NUM_PERIPHERALS; i++) {
+		if (i == PERIPHERAL_MODEM && (diag_rb_enable & DQ_FILTER_MASK)) {
+			printk("diag(%d): Filter Modem mask\n", __LINE__);
+			continue;
+		}
+		if (i == PERIPHERAL_MODEM && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+			printk("diag(%d): Filter Modem mask\n", __LINE__);
+			continue;
+		}
 		if (!diag_check_update(i, pid))
 			continue;
 		diag_send_log_mask_update(i, req->equip_id);
 	}
+/*-- 2015/10/26, USB Team, PCN00033 --*/
 end:
 	return write_len;
 }
@@ -1446,12 +1486,21 @@ static int diag_cmd_disable_log_mask(unsigned char *src_buf, int src_len,
 	header.status = LOG_STATUS_SUCCESS;
 	memcpy(dest_buf, &header, sizeof(struct diag_log_config_rsp_t));
 	write_len += sizeof(struct diag_log_config_rsp_t);
+/*++ 2015/10/26, USB Team, PCN00033 ++*/
 	for (i = 0; i < NUM_PERIPHERALS; i++) {
+		if (i == PERIPHERAL_MODEM && (diag_rb_enable & DQ_FILTER_MASK)) {
+			printk("diag(%d): Filter Modem mask\n", __LINE__);
+			continue;
+		}
+		if (i == PERIPHERAL_MODEM && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+			printk("diag(%d): Filter Modem mask\n", __LINE__);
+			continue;
+		}
 		if (!diag_check_update(i, pid))
 			continue;
 		diag_send_log_mask_update(i, ALL_EQUIP_ID);
 	}
-
+/*-- 2015/10/26, USB Team, PCN00033 --*/
 	return write_len;
 }
 
